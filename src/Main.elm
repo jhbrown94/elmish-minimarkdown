@@ -1,6 +1,7 @@
 module Main exposing (main)
 
-import Element exposing (column, el, layout, paragraph, text)
+import Element exposing (column, el, layout, paragraph, px, row, text, width)
+import Element.Border as Border
 import Element.Font as Font
 import Parser exposing (..)
 
@@ -76,6 +77,7 @@ plain =
 tokenize =
     oneOf
         [ succeed Star |. star
+        , succeed Slash |. slash
         , succeed Text |= plain
         , succeed Whitespace |. whitespace
         ]
@@ -90,40 +92,30 @@ line =
         ]
 
 
-
---token2 =
---    oneOf
---        [ star
---        , slash
---        , whitespace
---        , plain
---        ]
---simpleline =
---    oneOf
---        [ succeed [] |. end
---        , succeed (\head tail -> head :: tail) |= token2 |= lazy (\_ -> simpleline)
---        ]
-
-
 main =
     layout [] <|
         column [] <|
             List.map
                 (\input ->
-                    case run line input of
-                        Ok tokens ->
-                            startParse ( initialState, [] ) tokens
-                                |> finalizeState
-                                |> (\state ->
-                                        WithMarkup InheritNode { children = state.current }
-                                   )
-                                |> viewNode
+                    row [ Border.width 1 ]
+                        [ el [ width (px 200) ] <| text input
+                        , text "--->   "
+                        , case run line input of
+                            Ok tokens ->
+                                startParse ( initialState, [] ) tokens
+                                    |> finalizeState
+                                    |> (\state ->
+                                            WithMarkup InheritNode { children = List.reverse state.current }
+                                       )
+                                    |> viewNode
 
-                        Err err ->
-                            Debug.toString err |> text
+                            Err err ->
+                                Debug.toString err |> text
+                        ]
                 )
                 [ ""
                 , "hello"
+                , "hello*"
                 , "hello world"
                 , " hello world "
                 , "*"
@@ -132,10 +124,15 @@ main =
                 , "*hello*"
                 , "*hello world*"
                 , "*hello *world*"
+                , "*hello *world* again"
+                , "hello *world* again"
                 , " * hello * "
                 , "hel*lo"
                 , "*hel*/lo"
                 , "*hel*/lo*"
+                , "/hello/"
+                , "/*hello*/"
+                , "*/hello*/"
                 ]
 
 
@@ -165,25 +162,24 @@ viewNode node =
             text value
 
         WithMarkup BoldNode { children } ->
-            paragraph [ Font.bold ] <| List.reverse <| List.map viewNode children
+            row [ Font.bold ] <| List.map viewNode children
 
         WithMarkup ItalicNode { children } ->
-            paragraph [ Font.bold ] <| List.reverse <| List.map viewNode children
+            row [ Font.italic ] <| List.map viewNode children
 
         WithMarkup InheritNode { children } ->
-            paragraph [] <| List.reverse <| List.map viewNode children
+            row [] <| List.map viewNode children
 
 
 type Markup
     = MaybeBold
-    | Bold
-    | PrefixStar
+    | MaybeItalic
     | NoChange
 
 
 type Token
     = Star
-      -- | Slash
+    | Slash
     | Whitespace
     | Text String
 
@@ -205,10 +201,22 @@ push txt state =
     { state | current = NodeText txt :: state.current }
 
 
+prefix txt state =
+    { state | current = List.concat [ state.current, [ NodeText txt ] ] }
+
+
 confirmBold state parent =
     let
         node =
-            WithMarkup BoldNode { children = state.current }
+            WithMarkup BoldNode { children = List.reverse state.current }
+    in
+    { parent | current = node :: parent.current }
+
+
+confirmItalic state parent =
+    let
+        node =
+            WithMarkup ItalicNode { children = List.reverse state.current }
     in
     { parent | current = node :: parent.current }
 
@@ -219,12 +227,24 @@ confirmNoChange state parent =
 
 finalizeState : ( State, List State ) -> State
 finalizeState ( state, stack ) =
+    let
+        newState =
+            case state.markup of
+                MaybeBold ->
+                    prefix "*" state
+
+                MaybeItalic ->
+                    prefix "/" state
+
+                NoChange ->
+                    state
+    in
     case stack of
         parent :: rest ->
-            finalizeState ( confirmNoChange state parent, rest )
+            finalizeState ( confirmNoChange newState parent, rest )
 
         [] ->
-            confirmNoChange state initialState
+            confirmNoChange newState initialState
 
 
 startParse ( state, stack ) tokens =
@@ -237,6 +257,9 @@ startParse ( state, stack ) tokens =
 
         Star :: rest ->
             parseAfterLeftStar ( state, stack ) rest
+
+        Slash :: rest ->
+            parseAfterLeftSlash ( state, stack ) rest
 
         [] ->
             ( state, stack )
@@ -253,8 +276,29 @@ parseAfterLeftStar ( state, stack ) tokens =
         (Text txt) :: rest ->
             parseText ( { markup = MaybeBold, current = [] }, state :: stack ) txt rest
 
+        Slash :: rest ->
+            parseAfterLeftSlash ( { markup = MaybeBold, current = [] }, state :: stack ) rest
+
         Star :: rest ->
             parseAfterLeftStar ( push "*" state, stack ) rest
+
+
+parseAfterLeftSlash ( state, stack ) tokens =
+    case tokens of
+        [] ->
+            ( push "/" state, stack )
+
+        Whitespace :: _ ->
+            startParse ( push "-" state, stack ) tokens
+
+        (Text txt) :: rest ->
+            parseText ( { markup = MaybeItalic, current = [] }, state :: stack ) txt rest
+
+        Slash :: rest ->
+            parseAfterLeftSlash ( push "/" state, stack ) rest
+
+        Star :: rest ->
+            parseAfterLeftSlash ( { markup = MaybeItalic, current = [] }, state :: stack ) rest
 
 
 
@@ -281,32 +325,26 @@ parseAfterText ( state, stack ) tokens =
         Star :: rest ->
             parseAfterText (handleRightStar ( state, stack )) rest
 
+        Slash :: rest ->
+            parseAfterLeftSlash (handleRightSlash ( state, stack )) rest
+
         (Text txt) :: rest ->
             parseText ( state, stack ) txt rest
-
-
-clearBold state =
-    case state.markup of
-        MaybeBold ->
-            { state | markup = NoChange }
-
-        _ ->
-            state
 
 
 handleRightStar : ( State, List State ) -> ( State, List State )
 handleRightStar ( state, stack ) =
     if not (List.any (\s -> s.markup == MaybeBold) (state :: stack)) then
-        ( push "*" state, stack )
+        ( push "/" state, stack )
 
     else
-        handleCloseBold ( state, stack )
+        handleCloseItalic ( state, stack )
 
 
 handleCloseBold ( state, stack ) =
     case ( state.markup, stack ) of
         ( MaybeBold, parent :: rest ) ->
-            ( confirmBold state parent, List.map clearBold stack )
+            ( confirmBold state parent, List.map clearBold rest )
 
         ( MaybeBold, [] ) ->
             ( confirmBold state initialState, [] )
@@ -316,6 +354,48 @@ handleCloseBold ( state, stack ) =
 
         ( _, [] ) ->
             ( push "*" state, stack )
+
+
+clearBold state =
+    case state.markup of
+        MaybeBold ->
+            { state | markup = NoChange } |> prefix "*"
+
+        _ ->
+            state
+
+
+handleRightSlash : ( State, List State ) -> ( State, List State )
+handleRightSlash ( state, stack ) =
+    if not (List.any (\s -> s.markup == MaybeBold) (state :: stack)) then
+        ( push "/" state, stack )
+
+    else
+        handleCloseItalic ( state, stack )
+
+
+handleCloseItalic ( state, stack ) =
+    case ( state.markup, stack ) of
+        ( MaybeItalic, parent :: rest ) ->
+            ( confirmItalic state parent, List.map clearItalic rest )
+
+        ( MaybeItalic, [] ) ->
+            ( confirmItalic state initialState, [] )
+
+        ( _, parent :: rest ) ->
+            ( confirmNoChange state parent, rest )
+
+        ( _, [] ) ->
+            ( push "*" state, stack )
+
+
+clearItalic state =
+    case state.markup of
+        MaybeItalic ->
+            { state | markup = NoChange } |> prefix "/"
+
+        _ ->
+            state
 
 
 
