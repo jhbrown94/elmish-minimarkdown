@@ -3,93 +3,8 @@ module Main exposing (main)
 import Element exposing (column, el, layout, paragraph, px, row, text, width)
 import Element.Border as Border
 import Element.Font as Font
-import Parser exposing (..)
-
-
-isWhitespace c =
-    case c of
-        ' ' ->
-            True
-
-        '\t' ->
-            True
-
-        _ ->
-            False
-
-
-isText character =
-    case character of
-        '/' ->
-            False
-
-        '*' ->
-            False
-
-        c ->
-            not <| isWhitespace c
-
-
-isMarkup c =
-    case c of
-        '/' ->
-            True
-
-        '*' ->
-            True
-
-        _ ->
-            False
-
-
-star =
-    symbol "*"
-
-
-slash =
-    symbol "/"
-
-
-whitespace =
-    chompIf isWhitespace
-        |. chompWhile isWhitespace
-
-
-inlineSymbols =
-    oneOf
-        [ backtrackable (chompWhile isMarkup) |. lazy (\_ -> plaintext)
-        , succeed ()
-        ]
-
-
-plaintext =
-    getChompedString <|
-        succeed ()
-            |. chompIf isText
-            |. chompWhile isText
-            |. inlineSymbols
-
-
-plain =
-    plaintext
-
-
-tokenize =
-    oneOf
-        [ succeed Star |. star
-        , succeed Slash |. slash
-        , succeed Text |= plain
-        , succeed Whitespace |. whitespace
-        ]
-
-
-line =
-    oneOf
-        [ succeed [] |. end
-        , succeed (\head tail -> head :: tail)
-            |= tokenize
-            |= lazy (\_ -> line)
-        ]
+import Parser
+import Tokenizer exposing (..)
 
 
 main =
@@ -100,15 +15,31 @@ main =
                     row [ Border.width 1 ]
                         [ el [ width (px 200) ] <| text input
                         , text "--->   "
-                        , case run line input of
+                        , el
+                            [ width (px 200) ]
+                          <|
+                            case Parser.run line input of
+                                Ok tokens ->
+                                    startParse ( initialState, [] ) tokens
+                                        |> finalizeState
+                                        |> (\state ->
+                                                WithMarkup InheritNode { children = List.reverse state.current }
+                                           )
+                                        |> viewNode
+
+                                Err err ->
+                                    Debug.toString err |> text
+                        , case Parser.run line input of
                             Ok tokens ->
                                 startParse ( initialState, [] ) tokens
                                     |> finalizeState
-                                    |> (\state ->
-                                            WithMarkup InheritNode { children = List.reverse state.current }
-                                       )
-                                    |> viewNode
+                                    |> Debug.toString
+                                    |> text
 
+                            --|> (\state ->
+                            --        WithMarkup InheritNode { children = List.reverse state.current }
+                            --   )
+                            --|> viewNode
                             Err err ->
                                 Debug.toString err |> text
                         ]
@@ -175,13 +106,6 @@ type Markup
     = MaybeBold
     | MaybeItalic
     | NoChange
-
-
-type Token
-    = Star
-    | Slash
-    | Whitespace
-    | Text String
 
 
 type alias State =
@@ -271,7 +195,7 @@ parseAfterLeftStar ( state, stack ) tokens =
             ( push "*" state, stack )
 
         Whitespace :: _ ->
-            startParse ( push "*" state, stack ) tokens
+            startParse ( push " " state, stack ) tokens
 
         (Text txt) :: rest ->
             parseText ( { markup = MaybeBold, current = [] }, state :: stack ) txt rest
@@ -289,7 +213,7 @@ parseAfterLeftSlash ( state, stack ) tokens =
             ( push "/" state, stack )
 
         Whitespace :: _ ->
-            startParse ( push "-" state, stack ) tokens
+            startParse ( push " " state, stack ) tokens
 
         (Text txt) :: rest ->
             parseText ( { markup = MaybeItalic, current = [] }, state :: stack ) txt rest
@@ -298,7 +222,7 @@ parseAfterLeftSlash ( state, stack ) tokens =
             parseAfterLeftSlash ( push "/" state, stack ) rest
 
         Star :: rest ->
-            parseAfterLeftSlash ( { markup = MaybeItalic, current = [] }, state :: stack ) rest
+            parseAfterLeftStar ( { markup = MaybeItalic, current = [] }, state :: stack ) rest
 
 
 
@@ -335,10 +259,10 @@ parseAfterText ( state, stack ) tokens =
 handleRightStar : ( State, List State ) -> ( State, List State )
 handleRightStar ( state, stack ) =
     if not (List.any (\s -> s.markup == MaybeBold) (state :: stack)) then
-        ( push "/" state, stack )
+        ( push "*" state, stack )
 
     else
-        handleCloseItalic ( state, stack )
+        handleCloseBold ( state, stack )
 
 
 handleCloseBold ( state, stack ) =
@@ -367,7 +291,7 @@ clearBold state =
 
 handleRightSlash : ( State, List State ) -> ( State, List State )
 handleRightSlash ( state, stack ) =
-    if not (List.any (\s -> s.markup == MaybeBold) (state :: stack)) then
+    if not (List.any (\s -> s.markup == MaybeItalic) (state :: stack)) then
         ( push "/" state, stack )
 
     else
@@ -386,7 +310,7 @@ handleCloseItalic ( state, stack ) =
             ( confirmNoChange state parent, rest )
 
         ( _, [] ) ->
-            ( push "*" state, stack )
+            ( push "/" state, stack )
 
 
 clearItalic state =
