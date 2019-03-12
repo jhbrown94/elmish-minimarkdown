@@ -1,4 +1,4 @@
-module Tokenizer exposing (Token(..), inlineSymbols, isMarkup, isText, isWhitespace, line, parseLine, plain, plaintext, slash, star, tokenize, whitespace)
+module Tokenizer exposing (Token(..), parseLine)
 
 import Parser exposing (..)
 
