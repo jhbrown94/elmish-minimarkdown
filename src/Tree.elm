@@ -1,4 +1,4 @@
-module Tree exposing (Tree(..))
+module Tree exposing (Tree(..), view)
 
 import Element exposing (..)
 import Element.Font as Font
@@ -10,12 +10,13 @@ type Tree
     | Text String
 
 
+view tree =
+    case tree of
+        Bold { children } ->
+            row [ Font.bold ] (List.map view children)
 
---view tree =
---    case tree of
---        Bold { child } ->
---            el [ Font.bold ] (view child)
---        Italic { child } ->
---            el [ Font.bold ] (view child)
---        Text value ->
---            text value
+        Italic { children } ->
+            row [ Font.italic ] (List.map view children)
+
+        Text value ->
+            text value

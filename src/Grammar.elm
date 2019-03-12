@@ -1,14 +1,13 @@
 module Grammar exposing (main)
 
-import Element exposing (column, layout)
+import Element exposing (column, layout, row, text)
 import List.Extra exposing (splitWhen)
 import Tokenizer exposing (Token(..), parseLine)
 import Tree exposing (Tree)
 
 
 type Symbol
-    = Terminal Token
-    | Space
+    = Space
     | OpenBold
     | OpenItalic
     | BareStar
@@ -20,6 +19,10 @@ type Symbol
 
 finalizeStack : List Symbol -> List Tree.Tree
 finalizeStack stack =
+    let
+        debug =
+            stack |> Debug.toString |> Debug.log "Stack: "
+    in
     stack
         |> List.reverse
         |> List.map
@@ -48,14 +51,7 @@ finalizeStack stack =
 
                     Italic children ->
                         Tree.Italic { children = finalizeStack children }
-
-                    Terminal t ->
-                        Tree.Text (Debug.toString t)
             )
-
-
-shift token stack =
-    Terminal token :: stack
 
 
 parseStart : List Symbol -> List Token -> List Tree.Tree
@@ -70,10 +66,10 @@ parseStart stack tokens =
                     parseAfterLeftStar stack rest
 
                 Slash ->
-                    parseAfterLeftSlash (shift token stack) rest
+                    parseAfterLeftSlash stack rest
 
                 Plain value ->
-                    parseAfterText (shift token stack) rest
+                    parseAfterText (Text value :: stack) rest
 
                 Whitespace ->
                     parseStart (Space :: stack) rest
@@ -97,7 +93,7 @@ parseAfterLeftStar stack tokens =
                     parseAfterLeftSlash (OpenBold :: stack) restTokens
 
                 Plain value ->
-                    parseAfterText (Text value :: stack) restTokens
+                    parseAfterText (Text value :: OpenBold :: stack) restTokens
 
 
 parseAfterLeftSlash : List Symbol -> List Token -> List Tree.Tree
@@ -118,7 +114,7 @@ parseAfterLeftSlash stack tokens =
                     parseAfterLeftStar (OpenItalic :: stack) restTokens
 
                 Plain value ->
-                    parseAfterText (Text value :: stack) restTokens
+                    parseAfterText (Text value :: OpenItalic :: stack) restTokens
 
 
 parseAfterText : List Symbol -> List Token -> List Tree.Tree
@@ -130,16 +126,16 @@ parseAfterText stack tokens =
         token :: restTokens ->
             case token of
                 Whitespace ->
-                    parseStart (Space :: stack) tokens
+                    parseStart (Space :: stack) restTokens
 
                 Plain value ->
                     parseAfterText (Text value :: stack) restTokens
 
                 Slash ->
-                    parseAfterText (tryReduceItalics stack) tokens
+                    parseAfterText (tryReduceItalics stack) restTokens
 
                 Star ->
-                    parseAfterText (tryReduceBold stack) tokens
+                    parseAfterText (tryReduceBold stack) restTokens
 
 
 tryReduceItalics stack =
@@ -147,31 +143,37 @@ tryReduceItalics stack =
         Just ( body, rest ) ->
             let
                 cleanBody =
-                    List.map
-                        (\symbol ->
-                            if symbol == OpenBold then
-                                BareStar
+                    body
+                        |> List.map
+                            (\symbol ->
+                                if symbol == OpenBold then
+                                    BareStar
 
-                            else
-                                symbol
-                        )
-                        body
+                                else
+                                    symbol
+                            )
+                        |> List.filter (\s -> s /= OpenItalic)
 
                 cleanStack =
-                    List.map
-                        (\symbol ->
-                            if symbol == OpenItalic then
-                                BareSlash
+                    case rest of
+                        [] ->
+                            []
 
-                            else
-                                symbol
-                        )
-                        rest
+                        toss :: restStack ->
+                            List.map
+                                (\symbol ->
+                                    if symbol == OpenItalic then
+                                        BareSlash
+
+                                    else
+                                        symbol
+                                )
+                                restStack
             in
             Italic cleanBody :: cleanStack
 
         Nothing ->
-            stack
+            BareSlash :: stack
 
 
 tryReduceBold stack =
@@ -190,28 +192,41 @@ tryReduceBold stack =
                         body
 
                 cleanStack =
-                    List.map
-                        (\symbol ->
-                            if symbol == OpenBold then
-                                BareStar
+                    case rest of
+                        [] ->
+                            []
 
-                            else
-                                symbol
-                        )
-                        rest
+                        toss :: restStack ->
+                            List.map
+                                (\symbol ->
+                                    if symbol == OpenItalic then
+                                        BareSlash
+
+                                    else
+                                        symbol
+                                )
+                                restStack
             in
             Bold cleanBody :: cleanStack
 
         Nothing ->
-            stack
+            BareStar :: stack
+
+
+testdata =
+    [ "hello world"
+    , "*hello world"
+    , "*hello*"
+    , "*hello world*"
+    , "/hello world/"
+    , "*/hello world/*"
+    , " * "
+    , " */ hello/*"
+    , " *hello/*  /world*/"
+    ]
 
 
 main =
     Element.layout [] <|
         column [] <|
-            List.map (parseLine >> parseStart [] >> Debug.toString >> Element.text)
-                [ "hello world"
-                , "*hello world*"
-                , "/hello world/"
-                , "*/hello world/*"
-                ]
+            (List.map (parseLine >> parseStart [] >> List.map Tree.view) testdata |> List.map (row []))
