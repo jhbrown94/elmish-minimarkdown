@@ -4,6 +4,7 @@ import Document exposing (..)
 import Element exposing (column, el, layout, paragraph, px, row, text, width)
 import Element.Border as Border
 import Element.Font as Font
+import MiniParser exposing (..)
 import Parser
 import Tokenizer exposing (..)
 
