@@ -199,8 +199,8 @@ tryReduceBold stack =
                         toss :: restStack ->
                             List.map
                                 (\symbol ->
-                                    if symbol == OpenItalic then
-                                        BareSlash
+                                    if symbol == OpenBold then
+                                        BareStar
 
                                     else
                                         symbol
@@ -223,6 +223,7 @@ testdata =
     , " * "
     , " */ hello/*"
     , " *hello/*  /world*/"
+    , "*hello *world* again*"
     ]
 
 
