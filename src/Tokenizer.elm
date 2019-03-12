@@ -1,4 +1,4 @@
-module Tokenizer exposing (Token(..), line)
+module Tokenizer exposing (Token(..), inlineSymbols, isMarkup, isText, isWhitespace, line, parseLine, plain, plaintext, slash, star, tokenize, whitespace)
 
 import Parser exposing (..)
 
@@ -7,7 +7,7 @@ type Token
     = Star
     | Slash
     | Whitespace
-    | Text String
+    | Plain String
 
 
 isWhitespace c =
@@ -82,7 +82,7 @@ tokenize =
     oneOf
         [ succeed Star |. star
         , succeed Slash |. slash
-        , succeed Text |= plain
+        , succeed Plain |= plain
         , succeed Whitespace |. whitespace
         ]
 
@@ -94,3 +94,13 @@ line =
             |= tokenize
             |= lazy (\_ -> line)
         ]
+
+
+parseLine : String -> List Token
+parseLine input =
+    case run line input of
+        Ok tokens ->
+            tokens
+
+        Err err ->
+            Debug.todo "Error pasring line"
