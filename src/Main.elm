@@ -47,6 +47,9 @@ testdata =
     , "//hello/"
     , "/hello//"
     , "*hello*"
+    , "/*hello/"
+    , "*/foo/"
+    , "*_foo_"
     , "/*hello*/"
     , "_/*hello* there/ world_"
     , "*/hello/*"
@@ -67,6 +70,7 @@ testdata =
     , " *hello/*  /world*/"
     , "*hello *world* again*"
     , "hello *http://testme"
+    , "hello *_http://testme_"
     ]
 
 

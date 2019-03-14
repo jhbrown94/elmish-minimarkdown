@@ -30,7 +30,7 @@ type alias SymList =
 type alias State =
     { openBold : Int
     , openItalic : Int
-    , openUnderline : Int
+    , openUnderscore : Int
     , symbols : SymList
     }
 
@@ -80,7 +80,7 @@ starMarkup =
             { state
                 | openBold = 0
                 , openItalic = max (state.openItalic - lostItalics) 0
-                , openUnderline = max (state.openUnderline - lostUnderlines) 0
+                , openUnderscore = max (state.openUnderscore - lostUnderlines) 0
                 , symbols = Bold wrapped :: outside
             }
         )
@@ -105,7 +105,7 @@ slashMarkup =
             { state
                 | openItalic = 0
                 , openBold = max (state.openBold - lostBolds) 0
-                , openUnderline = max (state.openUnderline - lostUnderlines) 0
+                , openUnderscore = max (state.openUnderscore - lostUnderlines) 0
                 , symbols = Italic wrapped :: outside
             }
         )
@@ -117,8 +117,8 @@ underscoreMarkup =
         Underscore
         OpenUnderline
         Underline
-        (\state -> state.openUnderline)
-        (\state -> { state | openUnderline = state.openUnderline + 1 })
+        (\state -> state.openUnderscore)
+        (\state -> { state | openUnderscore = state.openUnderscore + 1 })
         (\wrapped outside state ->
             let
                 lostBolds =
@@ -128,7 +128,7 @@ underscoreMarkup =
                     Extra.count (\s -> s == OpenItalic) wrapped
             in
             { state
-                | openUnderline = 0
+                | openUnderscore = 0
                 , openBold = max (state.openBold - lostBolds) 0
                 , openItalic = max (state.openItalic - lostItalics) 0
                 , symbols = Underline wrapped :: outside
@@ -213,7 +213,7 @@ afterWhitespace state =
             [ succeed (symbolPush state) |= urlOrText
             , succeed state |. star |> andThen openStar
             , succeed state |. slash |> andThen openSlash
-            , succeed state |. underscore |> andThen openUnderline
+            , succeed state |. underscore |> andThen openUnderscore
             ]
             |> andThen afterText
         ]
@@ -277,6 +277,13 @@ openMarkup markup state =
             )
             |. star
             |> andThen openStar
+        , succeed
+            (state
+                |> markup.increment
+                |> pushSymbol markup.semanticOpen
+            )
+            |. underscore
+            |> andThen openUnderscore
         ]
 
 
@@ -288,7 +295,7 @@ openSlash =
     openMarkup slashMarkup
 
 
-openUnderline =
+openUnderscore =
     openMarkup underscoreMarkup
 
 
