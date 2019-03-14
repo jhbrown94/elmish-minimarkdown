@@ -1,21 +1,25 @@
-module Play6 exposing (main)
+module MiniMarkdownParser exposing (parse)
 
 import Element exposing (column, el, px, row, text, width)
 import Element.Font as Font
 import List.Extra as Extra
+import Node exposing (Node, NodeList)
 import Parser exposing (..)
-import Tokenizer exposing (plain, slash, star, whitespace)
+import Tokenizer exposing (..)
 
 
 type Symbol
-    = OpenBold
-    | Whitespace
-    | OpenItalic
-    | Text String
+    = Star
+    | OpenBold
     | Bold SymList
-    | Italic SymList
-    | Star
     | Slash
+    | OpenItalic
+    | Italic SymList
+    | Underscore
+    | OpenUnderline
+    | Underline SymList
+    | Whitespace
+    | Text String
 
 
 type alias SymList =
@@ -25,6 +29,7 @@ type alias SymList =
 type alias State =
     { openBold : Int
     , openItalic : Int
+    , openUnderline : Int
     , symbols : SymList
     }
 
@@ -60,10 +65,14 @@ starMarkup =
             let
                 lostItalics =
                     Extra.count (\s -> s == OpenItalic) wrapped
+
+                lostUnderlines =
+                    Extra.count (\s -> s == OpenUnderline) wrapped
             in
             { state
                 | openBold = 0
                 , openItalic = max (state.openItalic - lostItalics) 0
+                , openUnderline = max (state.openUnderline - lostUnderlines) 0
                 , symbols = Bold wrapped :: outside
             }
         )
@@ -81,11 +90,40 @@ slashMarkup =
             let
                 lostBolds =
                     Extra.count (\s -> s == OpenBold) wrapped
+
+                lostUnderlines =
+                    Extra.count (\s -> s == OpenUnderline) wrapped
             in
             { state
                 | openItalic = 0
                 , openBold = max (state.openBold - lostBolds) 0
+                , openUnderline = max (state.openUnderline - lostUnderlines) 0
                 , symbols = Italic wrapped :: outside
+            }
+        )
+
+
+underscoreMarkup =
+    Markup
+        underscore
+        Underscore
+        OpenUnderline
+        Underline
+        (\state -> state.openUnderline)
+        (\state -> { state | openUnderline = state.openUnderline + 1 })
+        (\wrapped outside state ->
+            let
+                lostBolds =
+                    Extra.count (\s -> s == OpenBold) wrapped
+
+                lostItalics =
+                    Extra.count (\s -> s == OpenItalic) wrapped
+            in
+            { state
+                | openUnderline = 0
+                , openBold = max (state.openBold - lostBolds) 0
+                , openItalic = max (state.openItalic - lostItalics) 0
+                , symbols = Underline wrapped :: outside
             }
         )
 
@@ -112,6 +150,7 @@ closingMarkup markup state =
             |> andThen inBrokenMarkup
         , succeed newState |. slash |> andThen closingSlash
         , succeed newState |. star |> andThen closingStar
+        , succeed newState |. underscore |> andThen closingUnderscore
         ]
 
 
@@ -123,6 +162,10 @@ closingSlash =
     closingMarkup slashMarkup
 
 
+closingUnderscore =
+    closingMarkup underscoreMarkup
+
+
 afterText : State -> Parser State
 afterText state =
     succeed identity
@@ -131,6 +174,7 @@ afterText state =
             , oneOf
                 [ succeed state |. star |> andThen closingStar
                 , succeed state |. slash |> andThen closingSlash
+                , succeed state |. underscore |> andThen closingUnderscore
                 , succeed (pushSymbol Whitespace state) |. whitespace
                 ]
                 |> andThen afterWhitespace
@@ -143,6 +187,7 @@ inBrokenMarkup state =
             [ oneOf
                 [ succeed (pushSymbol Slash state) |. slash
                 , succeed (pushSymbol Star state) |. star
+                , succeed (pushSymbol Underscore state) |. underscore
                 ]
                 |> andThen inBrokenMarkup
             , succeed identity |. whitespace |= afterWhitespace state
@@ -160,6 +205,7 @@ afterWhitespace state =
             [ succeed (pushText state) |= plain
             , succeed state |. star |> andThen openStar
             , succeed state |. slash |> andThen openSlash
+            , succeed state |. underscore |> andThen openUnderline
             ]
             |> andThen afterText
         ]
@@ -170,9 +216,19 @@ start =
         [ succeed identity
             |. whitespace
             |= lazy (\_ -> start)
-        , afterWhitespace (State 0 0 []) |. end
-        , succeed (State 0 0 []) |. end
+        , afterWhitespace (State 0 0 0 []) |. end
+        , succeed (State 0 0 0 []) |. end
         ]
+
+
+parse : String -> NodeList
+parse line =
+    case run start line of
+        Ok state ->
+            emit state.symbols
+
+        Err err ->
+            [ Node.Failure ("Failed to parse: " ++ deadEndsToString err) ]
 
 
 openMarkup markup state =
@@ -224,93 +280,45 @@ openSlash =
     openMarkup slashMarkup
 
 
-testdata1 =
-    [ "/hello/" ]
+openUnderline =
+    openMarkup underscoreMarkup
 
 
-testdata =
-    [ "hello"
-    , " hello"
-    , "hello "
-    , " hello "
-    , "/hello"
-    , "hello/"
-    , "/hello/"
-    , "//hello//"
-    , "//hello/"
-    , "/hello//"
-    , "*hello*"
-    , "/*hello*/"
-    , "*/hello/*"
-    , "*/hello*/"
-    , " /hello/ "
-    , "hello world"
-    , "/hello world"
-    , "hello/"
-    , "/hello/"
-    , "/*hello"
-    , "/*hello/"
-    , "/hello /there /italic fox/ here/ /there/"
-    , "*hello world*"
-    , "/hello world/"
-    , "*/hello world/*"
-    , " * "
-    , " */ hello/*"
-    , " *hello/*  /world*/"
-    , "*hello *world* again*"
-    ]
+emit symbols =
+    symbols |> List.reverse |> List.map emitSymbol
 
 
-viewSymbol symbol =
+emitSymbol symbol =
     case symbol of
         Whitespace ->
-            text " "
+            Node.Whitespace
 
         Star ->
-            text "*"
-
-        Slash ->
-            text "/"
-
-        Text value ->
-            text value
-
-        Bold symlist ->
-            row [ Font.bold ] (List.reverse (List.map viewSymbol symlist))
-
-        Italic symlist ->
-            row [ Font.italic ] (List.reverse (List.map viewSymbol symlist))
+            Node.Text "*"
 
         OpenBold ->
-            text "*"
+            Node.Text "*"
+
+        Slash ->
+            Node.Text "/"
 
         OpenItalic ->
-            text "/"
+            Node.Text "/"
 
+        Underscore ->
+            Node.Text "_"
 
-main =
-    Element.layout [] <|
-        column [] <|
-            (testdata
-                |> List.map
-                    (\txt ->
-                        column []
-                            [ row []
-                                (row [ width (px 400) ]
-                                    [ text "\""
-                                    , Element.text txt
-                                    , text "\""
-                                    ]
-                                    :: (run start txt
-                                            |> Result.withDefault (State 0 0 [ Text "FAILED" ])
-                                            |> (\x ->
-                                                    x.symbols
-                                                        |> List.map viewSymbol
-                                                        |> List.reverse
-                                               )
-                                       )
-                                )
-                            , el [] (run start txt |> Debug.toString |> text)
-                            ]
-                    )
-            )
+        OpenUnderline ->
+            Node.Text "_"
+
+        Text value ->
+            Node.Text value
+
+        Bold symlist ->
+            Node.Bold (emit symlist)
+
+        Italic symlist ->
+            Node.Italic (emit symlist)
+
+        Underline symlist ->
+            Node.Underline (emit symlist)

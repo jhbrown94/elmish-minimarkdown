@@ -1,13 +1,6 @@
-module Tokenizer exposing (Token(..), inlineSymbols, isMarkup, isText, isWhitespace, line, parseLine, plain, plaintext, slash, star, tokenize, whitespace)
+module Tokenizer exposing (plain, slash, star, underscore, whitespace)
 
 import Parser exposing (..)
-
-
-type Token
-    = Star
-    | Slash
-    | Whitespace
-    | Plain String
 
 
 isWhitespace c =
@@ -22,16 +15,8 @@ isWhitespace c =
             False
 
 
-isText character =
-    case character of
-        '/' ->
-            False
-
-        '*' ->
-            False
-
-        c ->
-            not <| isWhitespace c
+isText c =
+    not (isWhitespace c || isMarkup c)
 
 
 isMarkup c =
@@ -40,6 +25,9 @@ isMarkup c =
             True
 
         '*' ->
+            True
+
+        '_' ->
             True
 
         _ ->
@@ -52,6 +40,10 @@ star =
 
 slash =
     symbol "/"
+
+
+underscore =
+    symbol "_"
 
 
 whitespace =
@@ -76,31 +68,3 @@ plaintext =
 
 plain =
     plaintext
-
-
-tokenize =
-    oneOf
-        [ succeed Star |. star
-        , succeed Slash |. slash
-        , succeed Plain |= plain
-        , succeed Whitespace |. whitespace
-        ]
-
-
-line =
-    oneOf
-        [ succeed [] |. end
-        , succeed (\head tail -> head :: tail)
-            |= tokenize
-            |= lazy (\_ -> line)
-        ]
-
-
-parseLine : String -> List Token
-parseLine input =
-    case run line input of
-        Ok tokens ->
-            tokens
-
-        Err err ->
-            Debug.todo "Error pasring line"
