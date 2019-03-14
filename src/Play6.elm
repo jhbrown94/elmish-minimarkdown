@@ -206,24 +206,20 @@ main =
             (testdata
                 |> List.map
                     (\txt ->
-                        column []
-                            [ row []
-                                [ row [ width (px 400) ]
-                                    [ text "\""
-                                    , Element.text txt
-                                    , text "\""
-                                    ]
-                                , el [] (run (afterWhitespace (State 0 0 [])) txt |> Debug.toString |> text)
+                        row []
+                            (row [ width (px 400) ]
+                                [ text "\""
+                                , Element.text txt
+                                , text "\""
                                 ]
-                            , row []
-                                (run (afterWhitespace (State 0 0 [])) txt
-                                    |> Result.withDefault (State 0 0 [])
-                                    |> (\x ->
-                                            x.symbols
-                                                |> List.map viewSymbol
-                                                |> List.reverse
-                                       )
-                                )
-                            ]
+                                :: (run (afterWhitespace (State 0 0 [])) txt
+                                        |> Result.withDefault (State 0 0 [])
+                                        |> (\x ->
+                                                x.symbols
+                                                    |> List.map viewSymbol
+                                                    |> List.reverse
+                                           )
+                                   )
+                            )
                     )
             )
