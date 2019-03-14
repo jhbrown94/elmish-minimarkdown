@@ -1,4 +1,4 @@
-module MiniMarkdownParser exposing (parse)
+module MiniMarkdownParser exposing (Symbol(..), parse, start)
 
 import Element exposing (column, el, px, row, text, width)
 import Element.Font as Font
@@ -20,6 +20,7 @@ type Symbol
     | Underline SymList
     | Whitespace
     | Text String
+    | Url String
 
 
 type alias SymList =
@@ -38,8 +39,15 @@ pushSymbol symbol state =
     { state | symbols = symbol :: state.symbols }
 
 
-pushText state txt =
-    pushSymbol (Text txt) state
+symbolPush state symbol =
+    pushSymbol symbol state
+
+
+urlOrText =
+    oneOf
+        [ succeed Url |= url
+        , succeed Text |= plain
+        ]
 
 
 type alias Markup =
@@ -191,7 +199,7 @@ inBrokenMarkup state =
                 ]
                 |> andThen inBrokenMarkup
             , succeed identity |. whitespace |= afterWhitespace state
-            , succeed (pushText state) |= plain |> andThen afterText
+            , succeed (symbolPush state) |= urlOrText |> andThen afterText
             , succeed state |. end
             ]
 
@@ -202,7 +210,7 @@ afterWhitespace state =
         [ succeed state |. whitespace |> andThen afterWhitespace
         , succeed state |. end
         , oneOf
-            [ succeed (pushText state) |= plain
+            [ succeed (symbolPush state) |= urlOrText
             , succeed state |. star |> andThen openStar
             , succeed state |. slash |> andThen openSlash
             , succeed state |. underscore |> andThen openUnderline
@@ -252,9 +260,9 @@ openMarkup markup state =
                 state
                     |> markup.increment
                     |> pushSymbol markup.semanticOpen
-                    |> pushSymbol (Text txt)
+                    |> pushSymbol txt
             )
-            |= plain
+            |= urlOrText
         , succeed
             (state
                 |> markup.increment
@@ -322,3 +330,6 @@ emitSymbol symbol =
 
         Underline symlist ->
             Node.Underline (emit symlist)
+
+        Url txt ->
+            Node.Url txt

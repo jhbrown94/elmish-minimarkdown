@@ -4,6 +4,7 @@ import Element exposing (..)
 import Element.Font as Font
 import MiniMarkdownParser exposing (parse)
 import Node exposing (..)
+import Parser
 
 
 viewList nodes =
@@ -32,10 +33,6 @@ viewOne node =
 
         Failure failure ->
             el [ Font.color (rgb255 255 0 0) ] (text failure)
-
-
-testdata1 =
-    [ "/hello/" ]
 
 
 testdata =
@@ -69,6 +66,7 @@ testdata =
     , " */ hello/*"
     , " *hello/*  /world*/"
     , "*hello *world* again*"
+    , "hello *http://testme"
     ]
 
 
@@ -87,8 +85,7 @@ main =
                                     ]
                                     :: (txt |> parse |> viewList)
                                 )
-
-                            --, el [] (run start txt |> Debug.toString |> text)
+                            , el [] (Parser.run MiniMarkdownParser.start txt |> Debug.toString |> text)
                             ]
                     )
             )

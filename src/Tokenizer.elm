@@ -1,5 +1,6 @@
-module Tokenizer exposing (plain, slash, star, underscore, whitespace)
+module Tokenizer exposing (plain, slash, star, underscore, url, whitespace)
 
+import Html exposing (text)
 import Parser exposing (..)
 
 
@@ -51,20 +52,25 @@ whitespace =
         |. chompWhile isWhitespace
 
 
-inlineSymbols =
-    oneOf
-        [ backtrackable (chompWhile isMarkup) |. lazy (\_ -> plaintext)
-        , succeed ()
-        ]
-
-
-plaintext =
+url =
     getChompedString <|
-        succeed ()
-            |. chompIf isText
-            |. chompWhile isText
-            |. inlineSymbols
+        backtrackable
+            (chompIf Char.isAlphaNum
+                |. chompWhile Char.isAlphaNum
+                |. token "://"
+            )
+            |. plain
 
 
 plain =
-    plaintext
+    getChompedString <|
+        chompIf isText
+            |. chompWhile isText
+            |. oneOf
+                [ backtrackable (chompWhile isMarkup) |. lazy (\_ -> plain)
+                , succeed ()
+                ]
+
+
+main =
+    text <| Debug.toString (run url "h://hello")
