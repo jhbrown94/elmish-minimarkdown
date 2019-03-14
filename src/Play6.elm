@@ -7,17 +7,6 @@ import Parser exposing (..)
 import Tokenizer exposing (plain, slash, star, whitespace)
 
 
-type alias State =
-    { openBold : Int
-    , openItalic : Int
-    , symbols : SymList
-    }
-
-
-type alias SymList =
-    List Symbol
-
-
 type Symbol
     = OpenBold
     | Whitespace
@@ -29,8 +18,109 @@ type Symbol
     | Slash
 
 
+type alias SymList =
+    List Symbol
+
+
+type alias State =
+    { openBold : Int
+    , openItalic : Int
+    , symbols : SymList
+    }
+
+
 pushSymbol symbol state =
     { state | symbols = symbol :: state.symbols }
+
+
+pushText state txt =
+    pushSymbol (Text txt) state
+
+
+type alias Markup =
+    { parser : Parser ()
+    , literal : Symbol
+    , semanticOpen : Symbol
+    , semanticNode : SymList -> Symbol
+    , getOpenCount : State -> Int
+    , increment : State -> State
+    , onClose : SymList -> SymList -> State -> State
+    }
+
+
+starMarkup =
+    Markup
+        star
+        Star
+        OpenBold
+        Bold
+        (\state -> state.openBold)
+        (\state -> { state | openBold = state.openBold + 1 })
+        (\wrapped outside state ->
+            let
+                lostItalics =
+                    Extra.count (\s -> s == OpenItalic) wrapped
+            in
+            { state
+                | openBold = 0
+                , openItalic = max (state.openItalic - lostItalics) 0
+                , symbols = Bold wrapped :: outside
+            }
+        )
+
+
+slashMarkup =
+    Markup
+        slash
+        Slash
+        OpenItalic
+        Italic
+        (\state -> state.openItalic)
+        (\state -> { state | openItalic = state.openItalic + 1 })
+        (\wrapped outside state ->
+            let
+                lostBolds =
+                    Extra.count (\s -> s == OpenBold) wrapped
+            in
+            { state
+                | openItalic = 0
+                , openBold = max (state.openBold - lostBolds) 0
+                , symbols = Italic wrapped :: outside
+            }
+        )
+
+
+closingMarkup markup state =
+    let
+        newState =
+            if markup.getOpenCount state == 0 then
+                pushSymbol markup.literal state
+
+            else
+                case Extra.splitWhen (\s -> s == markup.semanticOpen) state.symbols of
+                    Just ( wrapped, _ :: outside ) ->
+                        markup.onClose wrapped outside state
+
+                    _ ->
+                        pushSymbol (Text ("FAIL:: " ++ Debug.toString state)) state
+    in
+    oneOf
+        [ succeed newState |. end
+        , succeed (pushSymbol Whitespace newState) |. whitespace |> andThen afterWhitespace
+        , succeed (state |> pushSymbol markup.literal |> pushSymbol markup.literal)
+            |. markup.parser
+            |> andThen inBrokenMarkup
+        , succeed newState |. slash |> andThen closingSlash
+        , succeed newState |. star |> andThen closingStar
+        ]
+
+
+closingStar =
+    closingMarkup starMarkup
+
+
+closingSlash =
+    closingMarkup slashMarkup
 
 
 afterText : State -> Parser State
@@ -47,64 +137,18 @@ afterText state =
             ]
 
 
-closingStar : State -> Parser State
-closingStar state =
-    let
-        newState =
-            if state.openBold == 0 then
-                pushSymbol Star state
-
-            else
-                case Extra.splitWhen (\s -> s == OpenBold) state.symbols of
-                    Just ( wrapped, OpenBold :: outside ) ->
-                        let
-                            lostItalics =
-                                Extra.count (\s -> s == OpenItalic) wrapped
-                        in
-                        { state
-                            | openBold = 0
-                            , openItalic = max (state.openItalic - lostItalics) 0
-                            , symbols = Bold wrapped :: outside
-                        }
-
-                    _ ->
-                        pushSymbol (Text ("FAIL:: " ++ Debug.toString state)) state
-    in
-    oneOf
-        [ succeed newState |. end
-        , succeed (pushSymbol Whitespace newState) |. whitespace |> andThen afterWhitespace
-        , succeed newState |. slash |> andThen closingSlash
-        ]
-
-
-closingSlash : State -> Parser State
-closingSlash state =
-    let
-        newState =
-            if state.openItalic == 0 then
-                pushSymbol Slash state
-
-            else
-                case Extra.splitWhen (\s -> s == OpenItalic) state.symbols of
-                    Just ( wrapped, OpenItalic :: outside ) ->
-                        let
-                            lostBolds =
-                                Extra.count (\s -> s == OpenBold) wrapped
-                        in
-                        { state
-                            | openItalic = 0
-                            , openBold = max (state.openBold - lostBolds) 0
-                            , symbols = Italic wrapped :: outside
-                        }
-
-                    _ ->
-                        pushSymbol (Text ("FAIL:: " ++ Debug.toString state)) state
-    in
-    oneOf
-        [ succeed newState |. end
-        , succeed (pushSymbol Whitespace newState) |. whitespace |> andThen afterWhitespace
-        , succeed newState |. star |> andThen closingStar
-        ]
+inBrokenMarkup state =
+    succeed identity
+        |= oneOf
+            [ oneOf
+                [ succeed (pushSymbol Slash state) |. slash
+                , succeed (pushSymbol Star state) |. star
+                ]
+                |> andThen inBrokenMarkup
+            , succeed identity |. whitespace |= afterWhitespace state
+            , succeed (pushText state) |= plain |> andThen afterText
+            , succeed state |. end
+            ]
 
 
 afterWhitespace : State -> Parser State
@@ -113,7 +157,7 @@ afterWhitespace state =
         [ succeed state |. whitespace |> andThen afterWhitespace
         , succeed state |. end
         , oneOf
-            [ succeed (\txt -> pushSymbol (Text txt) state) |= plain
+            [ succeed (pushText state) |= plain
             , succeed state |. star |> andThen openStar
             , succeed state |. slash |> andThen openSlash
             ]
@@ -121,26 +165,63 @@ afterWhitespace state =
         ]
 
 
-
--- Star star OpenBold Bold (\state -> { state | openBold = state.openBold + 1 })
-
-
-openStar : State -> Parser State
-openStar state =
+start =
     oneOf
-        [ succeed (state |> pushSymbol Star |> pushSymbol Whitespace) |. whitespace |> andThen afterWhitespace
-        , succeed ({ state | openBold = state.openBold + 1 } |> pushSymbol OpenBold) |. slash |> andThen openSlash
-        , succeed (\txt -> { state | openBold = state.openBold + 1 } |> pushSymbol OpenBold |> pushSymbol (Text txt)) |= plain
+        [ succeed identity
+            |. whitespace
+            |= lazy (\_ -> start)
+        , afterWhitespace (State 0 0 []) |. end
+        , succeed (State 0 0 []) |. end
         ]
 
 
-openSlash : State -> Parser State
-openSlash state =
+openMarkup markup state =
     oneOf
-        [ succeed (state |> pushSymbol Slash |> pushSymbol Whitespace) |. whitespace |> andThen afterWhitespace
-        , succeed ({ state | openItalic = state.openItalic + 1 } |> pushSymbol OpenItalic) |. star |> andThen openStar
-        , succeed (\txt -> { state | openItalic = state.openItalic + 1 } |> pushSymbol OpenItalic |> pushSymbol (Text txt)) |= plain
+        [ succeed
+            (state
+                |> pushSymbol markup.literal
+                |> pushSymbol Whitespace
+            )
+            |. whitespace
+            |> andThen afterWhitespace
+        , succeed
+            (state
+                |> pushSymbol markup.literal
+                |> pushSymbol markup.literal
+            )
+            |. markup.parser
+            |> andThen inBrokenMarkup
+        , succeed
+            (\txt ->
+                state
+                    |> markup.increment
+                    |> pushSymbol markup.semanticOpen
+                    |> pushSymbol (Text txt)
+            )
+            |= plain
+        , succeed
+            (state
+                |> markup.increment
+                |> pushSymbol markup.semanticOpen
+            )
+            |. slash
+            |> andThen openSlash
+        , succeed
+            (state
+                |> markup.increment
+                |> pushSymbol markup.semanticOpen
+            )
+            |. star
+            |> andThen openStar
         ]
+
+
+openStar =
+    openMarkup starMarkup
+
+
+openSlash =
+    openMarkup slashMarkup
 
 
 testdata1 =
@@ -156,6 +237,8 @@ testdata =
     , "hello/"
     , "/hello/"
     , "//hello//"
+    , "//hello/"
+    , "/hello//"
     , "*hello*"
     , "/*hello*/"
     , "*/hello/*"
@@ -211,20 +294,23 @@ main =
             (testdata
                 |> List.map
                     (\txt ->
-                        row []
-                            (row [ width (px 400) ]
-                                [ text "\""
-                                , Element.text txt
-                                , text "\""
-                                ]
-                                :: (run (afterWhitespace (State 0 0 [])) txt
-                                        |> Result.withDefault (State 0 0 [ Text "FAILED" ])
-                                        |> (\x ->
-                                                x.symbols
-                                                    |> List.map viewSymbol
-                                                    |> List.reverse
-                                           )
-                                   )
-                            )
+                        column []
+                            [ row []
+                                (row [ width (px 400) ]
+                                    [ text "\""
+                                    , Element.text txt
+                                    , text "\""
+                                    ]
+                                    :: (run start txt
+                                            |> Result.withDefault (State 0 0 [ Text "FAILED" ])
+                                            |> (\x ->
+                                                    x.symbols
+                                                        |> List.map viewSymbol
+                                                        |> List.reverse
+                                               )
+                                       )
+                                )
+                            , el [] (run start txt |> Debug.toString |> text)
+                            ]
                     )
             )
