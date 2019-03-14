@@ -1,6 +1,19 @@
 # Elmish Minimarkdown
 
-This is a simple parser that applies a handful of markups to a single line of text input.  To use it:
+This is a simple parser that applies a handful of markups to a single line of text input. 
+
+## Format
+
+`*foo*` marks "foo bar" as Bold, `/foo/` marks foo as Italic, `_foo_` marks foo as Underline.
+
+Markup characters appearing in the middle of a non-whitespace string will be treated as part of the string.  
+
+Markup blocks may contain multiple whitespace-separated strings.  (Whitespace is tab and space.) 
+
+URLs are recognized based on containing `://`.
+
+## Usage
+First,
 ```
 import MiniMarkdownParser exposing (parse)
 import Node exposing (..)
