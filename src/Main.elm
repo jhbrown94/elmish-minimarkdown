@@ -85,7 +85,8 @@ main =
                                     ]
                                     :: (txt |> parse |> viewList)
                                 )
-                            , el [] (Parser.run MiniMarkdownParser.start txt |> Debug.toString |> text)
+
+                            -- , el [] (Parser.run MiniMarkdownParser.start txt |> Debug.toString |> text)
                             ]
                     )
             )
