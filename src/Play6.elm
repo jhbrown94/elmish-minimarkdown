@@ -121,6 +121,10 @@ afterWhitespace state =
         ]
 
 
+
+-- Star star OpenBold Bold (\state -> { state | openBold = state.openBold + 1 })
+
+
 openStar : State -> Parser State
 openStar state =
     oneOf
@@ -151,6 +155,7 @@ testdata =
     , "/hello"
     , "hello/"
     , "/hello/"
+    , "//hello//"
     , "*hello*"
     , "/*hello*/"
     , "*/hello/*"
@@ -213,7 +218,7 @@ main =
                                 , text "\""
                                 ]
                                 :: (run (afterWhitespace (State 0 0 [])) txt
-                                        |> Result.withDefault (State 0 0 [])
+                                        |> Result.withDefault (State 0 0 [ Text "FAILED" ])
                                         |> (\x ->
                                                 x.symbols
                                                     |> List.map viewSymbol
